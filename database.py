@@ -28,12 +28,12 @@ def normalize_role(role: str) -> str:
     role = re.sub(r'\s+', '_', role)
     return role
 
-def retrieve_employees(required_roles: Dict[str, Dict[str, int]]) -> Dict[str, List[Dict[str, Any]]]:
+def retrieve_employees(required_roles: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
     """
     Retrieve employees from the database based on required roles.
     
     Args:
-        required_roles: Dictionary of required roles by operation
+        required_roles: Dictionary of required roles (can be nested or flattened)
         
     Returns:
         Dictionary of employees by role
@@ -47,32 +47,62 @@ def retrieve_employees(required_roles: Dict[str, Dict[str, int]]) -> Dict[str, L
             print("No employees found in database")
             return matched_employees
             
-        # Match employees to required roles
-        for operation, roles in required_roles.items():
-            for role, _ in roles.items():
-                role_key = role
-                matched_employees[role_key] = []
+        # Handle both nested and flattened role structures
+        roles_to_process = {}
+        for key, value in required_roles.items():
+            if isinstance(value, dict):
+                # Nested structure
+                for role, count in value.items():
+                    roles_to_process[role] = count
+            else:
+                # Flattened structure
+                roles_to_process[key] = value
                 
-                for i, metadata in enumerate(all_employees["metadatas"]):
-                    if not is_employee_available(metadata):
-                        continue
+        # Match employees to required roles
+        for role, _ in roles_to_process.items():
+            role_key = role
+            matched_employees[role_key] = []
+            
+            # Create list of possible role names to search for
+            role_search_terms = []
+            
+            # Handle composite role names (e.g., 'inbound_forklift_driver' -> 'forklift_driver')
+            if '_' in role:
+                base_role = role.split('_', 1)[-1]  # Get everything after the first underscore
+                role_search_terms.extend(ROLE_MAPPINGS.get(base_role, []))
+            
+            # Also search using the full role name
+            role_search_terms.extend(ROLE_MAPPINGS.get(role, []))
+            
+            # Add the role itself as a search term
+            role_search_terms.append(role.lower())
+            
+            for i, metadata in enumerate(all_employees["metadatas"]):
+                if not is_employee_available(metadata):
+                    continue
+                
+                # Get the employee's job title
+                job_title = metadata.get('original_job_title', '').lower()
+                normalized_job_title = metadata.get('normalized_job_title', '').lower()
+                
+                # Check if employee's job title matches any of the role search terms
+                matched = False
+                for search_term in role_search_terms:
+                    if (search_term.lower() in job_title or 
+                        search_term.lower() in normalized_job_title or
+                        job_title in search_term.lower() or
+                        normalized_job_title in search_term.lower()):
+                        employee = {
+                            'id': all_employees["ids"][i],
+                            **metadata
+                        }
+                        matched_employees[role_key].append(employee)
+                        matched = True
+                        break
+                
+                if matched:
+                    continue
                         
-                    employee_roles = metadata.get('roles', [])
-                    if isinstance(employee_roles, dict):
-                        employee_roles = [employee_roles]
-                    elif isinstance(employee_roles, str):
-                        employee_roles = [{'name': employee_roles}]
-                        
-                    for emp_role in employee_roles:
-                        role_name = emp_role.get('name', '').lower() if isinstance(emp_role, dict) else str(emp_role).lower()
-                        if role_name in ROLE_MAPPINGS.get(role, []):
-                            employee = {
-                                'id': all_employees["ids"][i],
-                                **metadata
-                            }
-                            matched_employees[role_key].append(employee)
-                            break
-                            
         return matched_employees
         
     except Exception as e:
@@ -99,7 +129,7 @@ def is_employee_available(metadata: Dict[str, Any]) -> bool:
             return False
         
         # Check shift preferences if available
-        shift_preferences = metadata.get("shift_preferences", [])
+        shift_preferences = metadata.get("shift_preferences", "")
         if shift_preferences and "day" not in shift_preferences:
             return False
         

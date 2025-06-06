@@ -5,10 +5,10 @@ import json
 from datetime import datetime
 import os
 import traceback
-from config import ROLE_MAPPINGS
+from config import ROLE_MAPPINGS, DB_PATH
 
 # Initialize ChromaDB client and collection
-chroma_client = chromadb.PersistentClient(path="./chroma_db_nzxt")
+chroma_client = chromadb.PersistentClient(path=DB_PATH)
 employee_collection = chroma_client.get_or_create_collection(name="employees")
 
 def normalize_role(role):

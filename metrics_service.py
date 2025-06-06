@@ -29,7 +29,8 @@ def calculate_required_roles(metrics_summaries: Dict[str, Dict[str, float]],
         incoming_pallets = forecast_data.get("daily_incoming_pallets", 0)
         shipping_pallets = forecast_data.get("daily_shipping_pallets", 0)
         total_cases = forecast_data.get("daily_order_qty", 0)
-        picked_orders = forecast_data.get("picked_outbound_orders", [])
+        staged_pallets = forecast_data.get("staged_pallets", 0)
+        cases_to_pick = forecast_data.get("cases_to_pick", 0)
 
         required_roles = {}
         effective_work_mins_per_person = HOURS_PER_SHIFT * 60 * WORKFORCE_EFFICIENCY
@@ -65,15 +66,12 @@ def calculate_required_roles(metrics_summaries: Dict[str, Dict[str, float]],
                 load_time_per_pallet = load.get("avg_load_time_per_pallet", 2.5)
             
             # Calculate loading time for picked orders
-                total_picked_pallets = 0
-                if picked_orders:
-                    for order in picked_orders:
-                        # Use the standardized field name from processed orders
-                        pallet_count = order.get('pallet_qty', 0)
-                        total_picked_pallets += pallet_count
+                total_staged_pallets = 0
+                if staged_pallets:
+                    total_staged_pallets = staged_pallets
                 
-                    picked_load_time = total_picked_pallets * load_time_per_pallet
-                    required_roles["forklift_driver_loading"] = max(1, round(picked_load_time / effective_work_mins_per_person))
+                    staged_load_time = total_staged_pallets * load_time_per_pallet
+                    required_roles["forklift_driver_loading"] = max(1, round(staged_load_time / effective_work_mins_per_person))
             
             # Calculate loading time for forecasted shipping pallets (non-picked)
                 if shipping_pallets > 0:
@@ -104,7 +102,7 @@ def calculate_required_roles(metrics_summaries: Dict[str, Dict[str, float]],
             },
             "picking": {
                 "bendi_driver": required_roles.get("bendi_driver_picking", 0),
-                "general labor": required_roles.get("scanner_picking", 0) + required_roles.get("packer_wrapping", 0)
+                "general_labor": required_roles.get("scanner_picking", 0) + required_roles.get("packer_wrapping", 0)
             },
             "loading": {
                 "forklift_driver": required_roles.get("forklift_driver_loading", 0)
@@ -118,8 +116,7 @@ def calculate_required_roles(metrics_summaries: Dict[str, Dict[str, float]],
         
     except Exception:
         return {
-            "forklift_driver": 3,
-            "lumpers": 3,
-            "bendi_driver": 2,
-            "replenishment": 1
+            "replenishment": {
+                "staff": 1
+            }
         }

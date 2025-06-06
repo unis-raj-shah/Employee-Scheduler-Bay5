@@ -3,6 +3,7 @@
 from typing import Dict, List, Any, Optional, Tuple
 import pandas as pd
 from api_client import get_priority_report, get_inbound_receipts, get_equipment_details
+from datetime import datetime
 
 def find_priority_report_columns(priority_df: pd.DataFrame) -> Tuple[Optional[str], Optional[str]]:
     """
@@ -136,10 +137,13 @@ def get_equipment_details_pallets(priority_df: pd.DataFrame) -> float:
 
     return total_pallets
 
-def get_incoming_data() -> Dict[str, float]:
+def get_incoming_data(target_date: Optional[datetime] = None) -> Dict[str, float]:
     """
     Get inbound receipt data for forecasting.
     
+    Args:
+        target_date: Optional target date for filtering receipts
+        
     Returns:
         Dictionary with incoming pallet count
     """
@@ -149,7 +153,7 @@ def get_incoming_data() -> Dict[str, float]:
             return {"incoming_pallets": 0}
             
         priority_df = priority_dfs['Inbound']
-        receipts = get_inbound_receipts()
+        receipts = get_inbound_receipts(target_date)
         
         # Get matched receipts with their pallet counts
         matched_incoming = get_matching_incoming_rns(receipts, priority_df)
@@ -165,39 +169,60 @@ def get_incoming_data() -> Dict[str, float]:
                     pallet_count = 28
                 receipt_pallets[rn_id] = pallet_count
         
-        equipment_details = get_equipment_details()
-        
-        # Get equipment receipt numbers and their pallet counts
+        # Equipment details logic: only include for tomorrow, not day after tomorrow
         equipment_pallets = 0
-        if equipment_details:
-            # Find pallet count column in priority report
-            pallet_qty_col, _ = find_priority_report_columns(priority_df)
-            if pallet_qty_col:
-                # Get equipment receipt numbers
-                equipment_receipts = set()
-                for detail in equipment_details:
-                    receipt_ids = detail.get('receiptIds', [])
-                    for receipt_id in receipt_ids:
-                        if receipt_id:
-                            equipment_receipts.add(receipt_id)
-                
-                # Get pallet counts for equipment receipts from priority report
-                for _, row in priority_df.iterrows():
-                    rn_value = str(row.get('RN', '')).strip()
-                    rn_value = f"RN-{rn_value}" if not rn_value.startswith('RN-') else rn_value
+        is_tomorrow = True  # Default assumption
+        
+        if target_date:
+            day_offset = (target_date.date() - datetime.now().date()).days
+            is_tomorrow = day_offset == 1  # Only include equipment details for tomorrow (day 1)
+        
+        if is_tomorrow:
+            equipment_details = get_equipment_details()
+            
+            # Get equipment receipt numbers and their pallet counts
+            if equipment_details:
+                # Find pallet count column in priority report
+                pallet_qty_col, _ = find_priority_report_columns(priority_df)
+                if pallet_qty_col:
+                    # Get equipment receipt numbers
+                    equipment_receipts = set()
+                    for detail in equipment_details:
+                        receipt_ids = detail.get('receiptIds', [])
+                        for receipt_id in receipt_ids:
+                            if receipt_id:
+                                equipment_receipts.add(receipt_id)
                     
-                    if rn_value in equipment_receipts and pallet_qty_col in row.index:
-                        try:
-                            pallet_qty = float(row[pallet_qty_col]) if pd.notna(row[pallet_qty_col]) else 0
-                            # Cap pallet count at 28 if it exceeds 33
-                            if pallet_qty > 33:
-                                pallet_qty = 28
-                            equipment_pallets += pallet_qty
-                        except (ValueError, TypeError):
-                            continue
+                    # Get pallet counts for equipment receipts from priority report
+                    for _, row in priority_df.iterrows():
+                        rn_value = str(row.get('RN', '')).strip()
+                        rn_value = f"RN-{rn_value}" if not rn_value.startswith('RN-') else rn_value
+                        
+                        if rn_value in equipment_receipts and pallet_qty_col in row.index:
+                            try:
+                                pallet_qty = float(row[pallet_qty_col]) if pd.notna(row[pallet_qty_col]) else 0
+                                # Cap pallet count at 28 if it exceeds 33
+                                if pallet_qty > 33:
+                                    pallet_qty = 28
+                                equipment_pallets += pallet_qty
+                            except (ValueError, TypeError):
+                                continue
         
         # Calculate total pallets by combining both sources
         total_pallets = sum(receipt_pallets.values()) + equipment_pallets
+        
+        # Debug output
+        date_str = target_date.strftime('%Y-%m-%d') if target_date else "No date"
+        day_name = "tomorrow" if is_tomorrow else "day after tomorrow"
+        print(f"Inbound data for {date_str} ({day_name}):")
+        print(f"  - Receipts found: {len(receipts)}")
+        print(f"  - Matched receipts: {len(matched_incoming)}")
+        print(f"  - Receipt pallets: {sum(receipt_pallets.values())}")
+        if is_tomorrow:
+            print(f"  - Equipment pallets: {equipment_pallets} (included for tomorrow)")
+        else:
+            print(f"  - Equipment pallets: 0 (excluded for day after tomorrow)")
+        print(f"  - Total pallets: {total_pallets}")
         
         return {"incoming_pallets": total_pallets or 0}
 

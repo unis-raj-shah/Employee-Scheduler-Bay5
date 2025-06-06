@@ -9,6 +9,18 @@ from config import EMAIL_CONFIG, DEFAULT_SHIFT
 from database import get_employee_details
 from metrics_config import ROLE_URLS, DEFAULT_ROLE_URL
 
+def calculate_total_staff_from_dict(staff_dict: Dict[str, int]) -> int:
+    """
+    Calculate the total number of staff from a staff dictionary.
+    
+    Args:
+        staff_dict: Dictionary containing staff counts by role
+        
+    Returns:
+        Total number of staff
+    """
+    return sum(staff_dict.values())
+
 def create_schedule_email_html(schedule_data: Dict[str, Any], 
                               employee_name: str, 
                               employee_email: str, 
@@ -436,13 +448,19 @@ def send_schedule_email(schedule_data: Dict[str, Any], assigned_employees: Dict[
             # Extract base role without operation prefix for display
             display_role = role.split('_', 1)[-1] if '_' in role else role
             
-            for emp_id in employees:
+            for emp_data in employees:
                 try:
-                    # Get employee email from database
-                    metadata = get_employee_details(emp_id)
-                    if not metadata:
-                        print(f"No data found for employee {emp_id}")
-                        continue
+                    # emp_data is already the full employee dictionary
+                    if isinstance(emp_data, dict):
+                        metadata = emp_data
+                        emp_id = emp_data.get('id') or emp_data.get('employee_id')
+                    else:
+                        # Fallback if it's just an ID string
+                        emp_id = emp_data
+                        metadata = get_employee_details(emp_id)
+                        if not metadata:
+                            print(f"No data found for employee {emp_id}")
+                            continue
                     
                     email = metadata.get("email")
                     name = metadata.get("name", emp_id)
@@ -479,13 +497,18 @@ def send_schedule_email(schedule_data: Dict[str, Any], assigned_employees: Dict[
         print(f"Error in send_schedule_email: {str(e)}")
         return False
 
-def send_forecast_email(forecast_data: Dict[str, Any], required_staff: Dict[str, int]) -> bool:
+def send_combined_forecast_email(tomorrow_data: Dict[str, Any], day_after_data: Dict[str, Any], 
+                               tomorrow_staff: Dict[str, int], day_after_staff: Dict[str, int], 
+                               shortages: Dict[str, int]) -> bool:
     """
-    Send forecast email to the team.
+    Send combined forecast and short-staffed email to the team.
     
     Args:
-        forecast_data: Dictionary containing forecast data
-        required_staff: Dictionary containing required staff counts
+        tomorrow_data: Dictionary containing tomorrow's forecast data
+        day_after_data: Dictionary containing day after's forecast data
+        tomorrow_staff: Dictionary containing tomorrow's required staff counts
+        day_after_staff: Dictionary containing day after's required staff counts
+        shortages: Dictionary of roles and their shortfall counts for tomorrow
         
     Returns:
         Boolean indicating success
@@ -497,7 +520,7 @@ def send_forecast_email(forecast_data: Dict[str, Any], required_staff: Dict[str,
     try:
         # Create email message
         msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"Forecast for Tomorrow for VitaCoco"
+        msg["Subject"] = f"Forecast and Staffing Alert for {tomorrow_data.get('date')} and {day_after_data.get('date')} for VitaCoco"
         msg["From"] = EMAIL_CONFIG["sender_email"]
         msg["To"] = ", ".join(EMAIL_CONFIG["default_recipients"])
         
@@ -508,7 +531,7 @@ def send_forecast_email(forecast_data: Dict[str, Any], required_staff: Dict[str,
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Forecast</title>
+            <title>Forecast and Staffing Alert</title>
             <style>
                 body {{
                     font-family: Arial, sans-serif;
@@ -519,7 +542,7 @@ def send_forecast_email(forecast_data: Dict[str, Any], required_staff: Dict[str,
                     background-color: #f9f9f9;
                 }}
                 .container {{
-                    max-width: 600px;
+                    max-width: 800px;
                     margin: 0 auto;
                     padding: 20px;
                     background-color: #ffffff;
@@ -539,11 +562,22 @@ def send_forecast_email(forecast_data: Dict[str, Any], required_staff: Dict[str,
                 .content {{
                     padding: 20px 0;
                 }}
+                .day-section {{
+                    margin-bottom: 30px;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 5px;
+                    overflow: hidden;
+                }}
+                .day-header {{
+                    background-color: #4CAF50;
+                    color: white;
+                    padding: 10px 15px;
+                    font-size: 18px;
+                    font-weight: bold;
+                }}
                 .forecast-section {{
                     background-color: #f1f8e9;
                     padding: 15px;
-                    border-radius: 5px;
-                    margin-bottom: 20px;
                 }}
                 .forecast-section h2 {{
                     margin-top: 0;
@@ -552,11 +586,19 @@ def send_forecast_email(forecast_data: Dict[str, Any], required_staff: Dict[str,
                 .staff-section {{
                     background-color: #e3f2fd;
                     padding: 15px;
-                    border-radius: 5px;
                 }}
                 .staff-section h2 {{
                     margin-top: 0;
                     color: #1976D2;
+                }}
+                .alert-section {{
+                    background-color: #ffebee;
+                    padding: 15px;
+                    margin-top: 20px;
+                }}
+                .alert-section h2 {{
+                    margin-top: 0;
+                    color: #c62828;
                 }}
                 .footer {{
                     text-align: center;
@@ -570,80 +612,95 @@ def send_forecast_email(forecast_data: Dict[str, Any], required_staff: Dict[str,
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>Forecast for Tomorrow</h1>
+                    <h1>Forecast and Staffing Alert for VitaCoco</h1>
                 </div>
                 
                 <div class="content">
-                    <div class="forecast-section">
-                        <h2>Forecast:</h2>
-                        <p><strong>Shipping Pallets:</strong> {forecast_data.get('shipping_pallets', 0):.1f}</p>
-                        <p><strong>Incoming Pallets:</strong> {forecast_data.get('incoming_pallets', 0):.1f}</p>
-                        <p><strong>Cases to Pick:</strong> {forecast_data.get('cases_to_pick', 0):.1f}</p>
-                        <p><strong>Staged Pallets:</strong> {forecast_data.get('picked_pallets', 0):.1f}</p>
-                    </div>
-
-                    <div class="staff-section">
-                        <h2>Required Staff:</h2>
-                        <div class="operation-section">
-                            <h3>Inbound Operations:</h3>
-                            <div class="role-list">
-                                <ul>
-                                    <li><strong>Forklift Drivers:</strong> {required_staff.get('inbound', {}).get('forklift_driver', 0)}</li>
-                                    <li><strong>Receivers:</strong> {required_staff.get('inbound', {}).get('receiver', 0)}</li>
-                                    <li><strong>Bendi Drivers:</strong> {required_staff.get('inbound', {}).get('bendi_driver', 0)}</li>
-                                </ul>
-                            </div>
+                    <!-- Tomorrow's Section -->
+                    <div class="day-section">
+                        <div class="day-header">
+                            {tomorrow_data.get('date')} ({tomorrow_data.get('day_name')})
                         </div>
-                        
-                        <div class="operation-section">
-                            <h3>Picking Operations:</h3>
-                            <div class="role-list">
-                                <ul>
-                                    <li><strong>Bendi Drivers:</strong> {required_staff.get('picking', {}).get('bendi_driver', 0)}</li>
-                                    <li><strong>General Labor:</strong> {required_staff.get('picking', {}).get('general labor', 0)}</li>
-                                </ul>
-                            </div>
+                        <div class="forecast-section">
+                            <h2>Forecast:</h2>
+                            <p><strong>Shipping Pallets:</strong> {round(tomorrow_data.get('shipping_pallets', 0))}</p>
+                            <p><strong>Incoming Pallets:</strong> {round(tomorrow_data.get('incoming_pallets', 0))}</p>
+                            <p><strong>Cases to Pick:</strong> {round(tomorrow_data.get('cases_to_pick', 0))}</p>
+                            <p><strong>Staged Pallets:</strong> {round(tomorrow_data.get('staged_pallets', 0))}</p>
                         </div>
-                        
-                        <div class="operation-section">
-                            <h3>Loading Operations:</h3>
-                            <div class="role-list">
-                                <ul>
-                                    <li><strong>Forklift Drivers:</strong> {required_staff.get('loading', {}).get('forklift_driver', 0)}</li>
-                                </ul>
-                            </div>
-                        </div>
-                        
-                        <div class="operation-section">
-                            <h3>Replenishment:</h3>
-                            <div class="role-list">
-                                <ul>
-                                    <li><strong>Staff:</strong> {required_staff.get('replenishment', {}).get('staff', 0)}</li>
-                                </ul>
-                            </div>
-                        </div>
-
-                        <div class="operation-section total-section">
-                            <h3>Total Headcount:</h3>
-                            <div class="role-list">
-                                <ul>
-                                    <li><strong>Total Staff Required:</strong> {
-                                        required_staff.get('inbound', {}).get('forklift_driver', 0) +
-                                        required_staff.get('inbound', {}).get('receiver', 0) +
-                                        required_staff.get('inbound', {}).get('bendi_driver', 0) +
-                                        required_staff.get('picking', {}).get('bendi_driver', 0) +
-                                        required_staff.get('picking', {}).get('general labor', 0) +
-                                        required_staff.get('loading', {}).get('forklift_driver', 0) +
-                                        required_staff.get('replenishment', {}).get('staff', 0)
-                                    }</li>
-                                </ul>
-                            </div>
+                        <div class="staff-section">
+                            <h2>Required Staff:</h2>
+                            <p><strong>Inbound:</strong></p>
+                            <p style="margin-left: 20px;">- Forklift Driver: {tomorrow_staff.get('inbound_forklift_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- Receiver: {tomorrow_staff.get('inbound_receiver', 0)}</p>
+                            <p style="margin-left: 20px;">- Bendi Driver: {tomorrow_staff.get('inbound_bendi_driver', 0)}</p>
+                            
+                            <p><strong>Picking:</strong></p>
+                            <p style="margin-left: 20px;">- Bendi Driver: {tomorrow_staff.get('picking_bendi_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- General Labor: {tomorrow_staff.get('picking_general_labor', 0)}</p>
+                            
+                            <p><strong>Loading:</strong></p>
+                            <p style="margin-left: 20px;">- Forklift Driver: {tomorrow_staff.get('loading_forklift_driver', 0)}</p>
+                            
+                            <p><strong>Replenishment:</strong></p>
+                            <p style="margin-left: 20px;">- Staff: {tomorrow_staff.get('consolidation', 0)}</p>
+                            
+                            <p><strong>TOTAL STAFF NEEDED: {calculate_total_staff_from_dict(tomorrow_staff)}</strong></p>
                         </div>
                     </div>
+
+                    <!-- Day After's Section -->
+                    <div class="day-section">
+                        <div class="day-header">
+                            {day_after_data.get('date')} ({day_after_data.get('day_name')})
+                        </div>
+                        <div class="forecast-section">
+                            <h2>Forecast:</h2>
+                            <p><strong>Outbound Pallets:</strong> {round(day_after_data.get('shipping_pallets', 0))}</p>
+                            <p><strong>Inbound Pallets:</strong> {round(day_after_data.get('incoming_pallets', 0))}</p>
+                            <p><strong>Cases to Pick:</strong> {round(day_after_data.get('cases_to_pick', 0))}</p>
+                            <p><strong>Staged Pallets:</strong> {round(day_after_data.get('staged_pallets', 0))}</p>
+                        </div>
+                        <div class="staff-section">
+                            <h2>Required Staff:</h2>
+                            <p><strong>Inbound:</strong></p>
+                            <p style="margin-left: 20px;">- Forklift Driver: {day_after_staff.get('inbound_forklift_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- Receiver: {day_after_staff.get('inbound_receiver', 0)}</p>
+                            <p style="margin-left: 20px;">- Bendi Driver: {day_after_staff.get('inbound_bendi_driver', 0)}</p>
+                            
+                            <p><strong>Picking:</strong></p>
+                            <p style="margin-left: 20px;">- Bendi Driver: {day_after_staff.get('picking_bendi_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- General Labor: {day_after_staff.get('picking_general_labor', 0)}</p>
+                            
+                            <p><strong>Loading:</strong></p>
+                            <p style="margin-left: 20px;">- Forklift Driver: {day_after_staff.get('loading_forklift_driver', 0)}</p>
+                            
+                            <p><strong>Replenishment:</strong></p>
+                            <p style="margin-left: 20px;">- Staff: {day_after_staff.get('consolidation', 0)}</p>
+                            
+                            <p><strong>TOTAL STAFF NEEDED: {calculate_total_staff_from_dict(day_after_staff)}</strong></p>
+                        </div>
+                    </div>
+                """
+        
+        # Add short-staffed alert section if there are shortages
+        if shortages:
+            html += f"""
+                    <div class="alert-section">
+                        <h2>⚠️ Short Staffed Alert for {tomorrow_data.get('date')}</h2>
+                        <p>The following roles are short staffed:</p>
+                        <ul>
+                            {''.join(f'<li><strong>{role}:</strong> {count} additional staff needed</li>' for role, count in shortages.items())}
+                        </ul>
+                        <p>Please review and take necessary action.</p>
+                    </div>
+                """
+        
+        html += """
                 </div>
                 
                 <div class="footer">
-                    <p>This is an automated forecast email. Please contact the warehouse manager if you have any questions.</p>
+                    <p>This is an automated forecast and staffing alert. Please contact the warehouse manager if you have any questions.</p>
                 </div>
             </div>
         </body>
@@ -658,11 +715,11 @@ def send_forecast_email(forecast_data: Dict[str, Any], required_staff: Dict[str,
             server.login(EMAIL_CONFIG["sender_email"], EMAIL_CONFIG["sender_password"])
             server.send_message(msg)
         
-        print("Forecast email sent successfully")
+        print("Combined forecast and staffing email sent successfully")
         return True
     
     except Exception as e:
-        print(f"Error sending forecast email: {str(e)}")
+        print(f"Error sending combined forecast and staffing email: {str(e)}")
         return False
 
 def get_role_url(role: str) -> str:
@@ -680,55 +737,3 @@ def get_role_url(role: str) -> str:
     
     # Return the URL if found, otherwise return the default URL
     return ROLE_URLS.get(normalized_role, DEFAULT_ROLE_URL)
-
-def send_short_staffed_notification(shortages: Dict[str, int], date: str) -> bool:
-    """
-    Send a notification email to managers about short-staffed roles.
-    
-    Args:
-        shortages: Dictionary of roles and their shortfall counts
-        date: The date for which the shortage applies
-        
-    Returns:
-        Boolean indicating success
-    """
-    if not shortages:
-        print("No shortages to notify.")
-        return False
-
-    if not EMAIL_CONFIG["sender_email"] or not EMAIL_CONFIG["sender_password"]:
-        print("Email configuration not set up.")
-        return False
-
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = f"Short Staffed Alert for {date}"
-        msg["From"] = EMAIL_CONFIG["sender_email"]
-        msg["To"] = ", ".join(EMAIL_CONFIG["default_recipients"])
-
-        # Create the HTML content
-        html = f"""
-        <html>
-        <body>
-            <h2>Short Staffed Alert for {date}</h2>
-            <p>The following roles are short staffed:</p>
-            <ul>
-                {''.join(f'<li><strong>{role}:</strong> {count}</li>' for role, count in shortages.items())}
-            </ul>
-            <p>Please review and take necessary action.</p>
-        </body>
-        </html>
-        """
-        msg.attach(MIMEText(html, "html"))
-
-        with smtplib.SMTP(EMAIL_CONFIG["smtp_server"], EMAIL_CONFIG["smtp_port"]) as server:
-            server.starttls()
-            server.login(EMAIL_CONFIG["sender_email"], EMAIL_CONFIG["sender_password"])
-            server.send_message(msg)
-
-        print("Short staffed notification sent to managers.")
-        return True
-
-    except Exception as e:
-        print(f"Error sending short staffed notification: {str(e)}")
-        return False
