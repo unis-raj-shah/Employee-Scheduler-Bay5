@@ -34,7 +34,7 @@ def calculate_required_roles(metrics_summaries: Dict[str, Dict[str, float]],
 
         required_roles = {}
         effective_work_mins_per_person = HOURS_PER_SHIFT * 60 * WORKFORCE_EFFICIENCY
-        calculated_shipping_pallets = round(total_cases / CASES_PER_PALLET, 2)
+        calculated_shipping_pallets = round(cases_to_pick / CASES_PER_PALLET, 2)
         shipping_pallets = shipping_pallets + calculated_shipping_pallets
        
         
@@ -49,8 +49,9 @@ def calculate_required_roles(metrics_summaries: Dict[str, Dict[str, float]],
             required_roles["bendi_driver_inbound"] = max(1, round(total_putaway_time / effective_work_mins_per_person))
 
         
-        if shipping_pallets > 0 or total_cases > 0:
-            if "picking" in metrics_summaries:
+        # Calculate picking operations if there are any cases to pick or shipping pallets to process
+        if total_cases > 0 or shipping_pallets > 0:
+            if "picking" in metrics_summaries and shipping_pallets > 0:
                 picking = metrics_summaries["picking"]
                 total_pick_time_bendi = shipping_pallets * picking.get("avg_pick_time", 3.0)
                 total_scan_time_picking = shipping_pallets * picking.get("avg_scan_time", 0.15)
@@ -61,23 +62,23 @@ def calculate_required_roles(metrics_summaries: Dict[str, Dict[str, float]],
                 required_roles["scanner_picking"] = max(1, round(total_scan_time_picking / effective_work_mins_per_person))
                 required_roles["packer_wrapping"] = max(1, round(total_wrap_time / effective_work_mins_per_person))
             
-            if "load" in metrics_summaries:
+            # Calculate loading operations if there are any pallets to load
+            if "load" in metrics_summaries and (staged_pallets > 0 or shipping_pallets > 0):
                 load = metrics_summaries["load"]
                 load_time_per_pallet = load.get("avg_load_time_per_pallet", 2.5)
-            
-            # Calculate loading time for picked orders
-                total_staged_pallets = 0
-                if staged_pallets:
-                    total_staged_pallets = staged_pallets
                 
-                    staged_load_time = total_staged_pallets * load_time_per_pallet
-                    required_roles["forklift_driver_loading"] = max(1, round(staged_load_time / effective_work_mins_per_person))
-            
-            # Calculate loading time for forecasted shipping pallets (non-picked)
+                # Initialize forklift_driver_loading
+                required_roles["forklift_driver_loading"] = 0
+                
+                # Calculate loading time for picked orders
+                if staged_pallets > 0:
+                    staged_load_time = staged_pallets * load_time_per_pallet
+                    required_roles["forklift_driver_loading"] += max(1, round(staged_load_time / effective_work_mins_per_person))
+                
+                # Calculate loading time for forecasted shipping pallets (non-picked)
                 if shipping_pallets > 0:
                     forecast_load_time = shipping_pallets * load_time_per_pallet
-                    required_roles["forklift_driver_loading"] += max(1, round(forecast_load_time / effective_work_mins_per_person)
-                )
+                    required_roles["forklift_driver_loading"] += max(1, round(forecast_load_time / effective_work_mins_per_person))
                         
         
         # Combine roles
@@ -89,7 +90,7 @@ def calculate_required_roles(metrics_summaries: Dict[str, Dict[str, float]],
 
         total_bendi_drivers = required_roles.get("bendi_driver_inbound", 0) + required_roles.get("bendi_driver_picking", 0)
 
-        total_headcount = (total_forklift_drivers + total_bendi_drivers + total_scanners + total_packers + required_roles.get("picker", 0))
+        total_headcount = (total_forklift_drivers + total_bendi_drivers + total_scanners + total_packers)
         
         # Consolidation as 10% of total headcount
         consolidation_head_count = max(1, round(total_headcount * 0.1))

@@ -25,6 +25,27 @@ def get_tomorrow_date_range(days_ahead: int = 4) -> Tuple[datetime, datetime, da
     tomorrow = today + timedelta(days=1)
     day_after = today + timedelta(days=2)
     
+    # Skip weekends for tomorrow (Saturday=5, Sunday=6)
+    if tomorrow.weekday() == 5:  # Saturday
+        tomorrow = tomorrow + timedelta(days=2)  # Move to Monday
+    elif tomorrow.weekday() == 6:  # Sunday
+        tomorrow = tomorrow + timedelta(days=1)  # Move to Monday
+    
+    # Skip weekends for day after tomorrow
+    if day_after.weekday() == 5:  # Saturday
+        day_after = day_after + timedelta(days=2)  # Move to Monday
+    elif day_after.weekday() == 6:  # Sunday
+        day_after = day_after + timedelta(days=1)  # Move to Monday
+    
+    # Ensure day_after is always after tomorrow
+    if day_after <= tomorrow:
+        day_after = tomorrow + timedelta(days=1)
+        # If the next day after tomorrow is weekend, skip to Monday
+        if day_after.weekday() == 5:  # Saturday
+            day_after = day_after + timedelta(days=2)  # Move to Monday
+        elif day_after.weekday() == 6:  # Sunday
+            day_after = day_after + timedelta(days=1)  # Move to Monday
+    
     # Set time ranges
     tomorrow_start = tomorrow.replace(hour=0, minute=0, second=0)
     tomorrow_end = tomorrow.replace(hour=23, minute=59, second=59)

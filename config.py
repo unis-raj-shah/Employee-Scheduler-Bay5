@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 
 # API Settings
 WISE_API_HEADERS = {
-    "authorization": os.getenv("WISE_API_KEY", "af6e1f16-943a-49ba-ba45-a135c85d4bd0"),
+    "authorization": os.getenv("WISE_API_KEY", "858a0320-ce70-47ab-94f0-f832ec0f6715"),
     "wise-company-id": os.getenv("WISE_COMPANY_ID", "ORG-1"),
     "wise-facility-id": os.getenv("WISE_FACILITY_ID", "F1"),
     "content-type": "application/json;charset=UTF-8",
@@ -18,7 +18,7 @@ EMAIL_CONFIG = {
     "smtp_port": int(os.getenv("SMTP_PORT", "587")),
     "sender_email": os.getenv("SENDER_EMAIL", "raj.shah@unisco.com"),
     "sender_password": os.getenv("SENDER_PASSWORD", "Raj@UNIS123"),
-    "default_recipients": os.getenv("DEFAULT_RECIPIENTS", "raj.shah@unisco.com,mark.tuttle@unisco.com,john.diaz@unisco.com,steven.balbas@unisco.com,steven.garcia@unisco.com").split(',')
+    "default_recipients": os.getenv("DEFAULT_RECIPIENTS", "raj.shah@unisco.com,mark.tuttle@unisco.com,john.diaz@unisco.com,steven.balbas@unisco.com,steven.garcia@unisco.com,humberto.flores@unisco.com").split(',')
 }
 
 # Database Settings
@@ -47,12 +47,12 @@ HOURS_PER_SHIFT = 7.5
 # Default metrics summaries
 DEFAULT_METRICS = {
     "inbound": {
-        "avg_offload_time": 2.5,  # minutes per pallet
+        "avg_offload_time": 3.0,  # minutes per pallet
         "avg_scan_time": 0.15,     # minutes per pallet
         "avg_putaway_time": 2.5    # minutes per pallet
     },
     "picking": {
-        "avg_pick_time": 3.0,   # minutes per case
+        "avg_pick_time": 3.0,   # minutes per case/pallet
         "avg_scan_time": 0.15,       # minutes per case
         "avg_wrap_time": 0.75        # minutes per pallet
     },

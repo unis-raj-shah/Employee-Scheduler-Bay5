@@ -498,7 +498,7 @@ def send_schedule_email(schedule_data: Dict[str, Any], assigned_employees: Dict[
         return False
 
 def send_combined_forecast_email(tomorrow_data: Dict[str, Any], day_after_data: Dict[str, Any], 
-                               tomorrow_staff: Dict[str, int], day_after_staff: Dict[str, int], 
+                               tomorrow_roles: Dict[str, Dict[str, int]], day_after_roles: Dict[str, Dict[str, int]], 
                                shortages: Dict[str, int]) -> bool:
     """
     Send combined forecast and short-staffed email to the team.
@@ -506,8 +506,8 @@ def send_combined_forecast_email(tomorrow_data: Dict[str, Any], day_after_data: 
     Args:
         tomorrow_data: Dictionary containing tomorrow's forecast data
         day_after_data: Dictionary containing day after's forecast data
-        tomorrow_staff: Dictionary containing tomorrow's required staff counts
-        day_after_staff: Dictionary containing day after's required staff counts
+        tomorrow_roles: Dictionary containing tomorrow's required roles by operation
+        day_after_roles: Dictionary containing day after's required roles by operation
         shortages: Dictionary of roles and their shortfall counts for tomorrow
         
     Returns:
@@ -631,21 +631,21 @@ def send_combined_forecast_email(tomorrow_data: Dict[str, Any], day_after_data: 
                         <div class="staff-section">
                             <h2>Required Staff:</h2>
                             <p><strong>Inbound:</strong></p>
-                            <p style="margin-left: 20px;">- Forklift Driver: {tomorrow_staff.get('inbound_forklift_driver', 0)}</p>
-                            <p style="margin-left: 20px;">- Receiver: {tomorrow_staff.get('inbound_receiver', 0)}</p>
-                            <p style="margin-left: 20px;">- Bendi Driver: {tomorrow_staff.get('inbound_bendi_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- Forklift Driver: {tomorrow_roles.get('inbound', {}).get('forklift_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- Receiver: {tomorrow_roles.get('inbound', {}).get('receiver', 0)}</p>
+                            <p style="margin-left: 20px;">- Bendi Driver: {tomorrow_roles.get('inbound', {}).get('bendi_driver', 0)}</p>
                             
                             <p><strong>Picking:</strong></p>
-                            <p style="margin-left: 20px;">- Bendi Driver: {tomorrow_staff.get('picking_bendi_driver', 0)}</p>
-                            <p style="margin-left: 20px;">- General Labor: {tomorrow_staff.get('picking_general_labor', 0)}</p>
+                            <p style="margin-left: 20px;">- Bendi Driver: {tomorrow_roles.get('picking', {}).get('bendi_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- General Labor: {tomorrow_roles.get('picking', {}).get('general_labor', 0)}</p>
                             
                             <p><strong>Loading:</strong></p>
-                            <p style="margin-left: 20px;">- Forklift Driver: {tomorrow_staff.get('loading_forklift_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- Forklift Driver: {tomorrow_roles.get('loading', {}).get('forklift_driver', 0)}</p>
                             
                             <p><strong>Replenishment:</strong></p>
-                            <p style="margin-left: 20px;">- Staff: {tomorrow_staff.get('consolidation', 0)}</p>
+                            <p style="margin-left: 20px;">- Staff: {tomorrow_roles.get('replenishment', {}).get('staff', 0)}</p>
                             
-                            <p><strong>TOTAL STAFF NEEDED: {calculate_total_staff_from_dict(tomorrow_staff)}</strong></p>
+                            <p><strong>TOTAL STAFF NEEDED: {sum(sum(roles.values()) for roles in tomorrow_roles.values())}</strong></p>
                         </div>
                     </div>
 
@@ -664,21 +664,21 @@ def send_combined_forecast_email(tomorrow_data: Dict[str, Any], day_after_data: 
                         <div class="staff-section">
                             <h2>Required Staff:</h2>
                             <p><strong>Inbound:</strong></p>
-                            <p style="margin-left: 20px;">- Forklift Driver: {day_after_staff.get('inbound_forklift_driver', 0)}</p>
-                            <p style="margin-left: 20px;">- Receiver: {day_after_staff.get('inbound_receiver', 0)}</p>
-                            <p style="margin-left: 20px;">- Bendi Driver: {day_after_staff.get('inbound_bendi_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- Forklift Driver: {day_after_roles.get('inbound', {}).get('forklift_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- Receiver: {day_after_roles.get('inbound', {}).get('receiver', 0)}</p>
+                            <p style="margin-left: 20px;">- Bendi Driver: {day_after_roles.get('inbound', {}).get('bendi_driver', 0)}</p>
                             
                             <p><strong>Picking:</strong></p>
-                            <p style="margin-left: 20px;">- Bendi Driver: {day_after_staff.get('picking_bendi_driver', 0)}</p>
-                            <p style="margin-left: 20px;">- General Labor: {day_after_staff.get('picking_general_labor', 0)}</p>
+                            <p style="margin-left: 20px;">- Bendi Driver: {day_after_roles.get('picking', {}).get('bendi_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- General Labor: {day_after_roles.get('picking', {}).get('general_labor', 0)}</p>
                             
                             <p><strong>Loading:</strong></p>
-                            <p style="margin-left: 20px;">- Forklift Driver: {day_after_staff.get('loading_forklift_driver', 0)}</p>
+                            <p style="margin-left: 20px;">- Forklift Driver: {day_after_roles.get('loading', {}).get('forklift_driver', 0)}</p>
                             
                             <p><strong>Replenishment:</strong></p>
-                            <p style="margin-left: 20px;">- Staff: {day_after_staff.get('consolidation', 0)}</p>
+                            <p style="margin-left: 20px;">- Staff: {day_after_roles.get('replenishment', {}).get('staff', 0)}</p>
                             
-                            <p><strong>TOTAL STAFF NEEDED: {calculate_total_staff_from_dict(day_after_staff)}</strong></p>
+                            <p><strong>TOTAL STAFF NEEDED: {sum(sum(roles.values()) for roles in day_after_roles.values())}</strong></p>
                         </div>
                     </div>
                 """

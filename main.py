@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any
 import schedule_service
+from database import save_scheduled_employees, get_scheduled_employees, delete_scheduled_employees
 
 def calculate_total_staff(required_roles: Dict[str, Any]) -> int:
     """
@@ -52,11 +53,30 @@ async def root():
         if not schedule_result:
             return {"error": "Failed to generate schedule"}
             
-        # schedule_result is a dictionary with 'tomorrow' and 'day_after' keys
+        tomorrow_data, day_after_data = schedule_result
+        
+        # Save scheduled employees to database for tomorrow
+        tomorrow_saved = save_scheduled_employees(
+            tomorrow_data['date'],
+            tomorrow_data['day_name'],
+            tomorrow_data['assigned_employees']
+        )
+        
+        # Save scheduled employees to database for day after tomorrow
+        day_after_saved = save_scheduled_employees(
+            day_after_data['date'],
+            day_after_data['day_name'],
+            day_after_data['assigned_employees']
+        )
+        
         return {
             "message": "Schedule generated successfully",
-            "tomorrow": schedule_result['tomorrow'],
-            "day_after": schedule_result['day_after']
+            "tomorrow": tomorrow_data,
+            "day_after": day_after_data,
+            "database_saves": {
+                "tomorrow_saved": tomorrow_saved,
+                "day_after_saved": day_after_saved
+            }
         }
         
     except Exception as e:
@@ -81,14 +101,62 @@ async def get_schedule() -> Dict[str, Any]:
                 status_code=404,
                 detail="No scheduling data available for tomorrow"
             )
+        
+        # Save scheduled employees to database
+        tomorrow_data = scheduling_data.get('tomorrow', {})
+        day_after_data = scheduling_data.get('day_after', {})
+        
+        saves_successful = {}
+        if tomorrow_data:
+            saves_successful['tomorrow'] = save_scheduled_employees(
+                tomorrow_data['date'],
+                tomorrow_data['day_name'],
+                tomorrow_data['assigned_employees']
+            )
+        
+        if day_after_data:
+            saves_successful['day_after'] = save_scheduled_employees(
+                day_after_data['date'],
+                day_after_data['day_name'],
+                day_after_data['assigned_employees']
+            )
+        
         return {
             'success': True,
-            'data': scheduling_data
+            'data': scheduling_data,
+            'database_saves': saves_successful
         }
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"Error generating schedule: {str(e)}"
+        )
+
+@app.get("/api/scheduled-employees/{date}")
+async def get_scheduled_employees_by_date(date: str) -> Dict[str, Any]:
+    """
+    Get scheduled employees for a specific date.
+    
+    Args:
+        date: Date in YYYY-MM-DD format
+        
+    Returns:
+        Dict containing scheduled employee details for the specified date.
+    
+    Raises:
+        HTTPException: If there's an error retrieving the scheduled employees.
+    """
+    try:
+        scheduled_data = get_scheduled_employees(date)
+        
+        return {
+            'success': True,
+            'data': scheduled_data
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving scheduled employees: {str(e)}"
         )
 
 if __name__ == "__main__":
@@ -113,17 +181,8 @@ if __name__ == "__main__":
             print(f"- Staged Pallets: {tomorrow_data['forecast_data']['staged_pallets']:.1f}")
             
             print("\nRequired Staff:")
-            for operation, roles in tomorrow_data['required_roles'].items():
-                if isinstance(roles, dict):
-                    print(f"- {operation.title()}:")
-                    for role, count in roles.items():
-                        print(f"  - {role.replace('_', ' ').title()}: {count}")
-                else:
-                    print(f"- {operation.replace('_', ' ').title()}: {roles}")
-            
-            # Calculate and display total staff for tomorrow
-            total_tomorrow_staff = calculate_total_staff(tomorrow_data['required_roles'])
-            print(f"\n*** TOTAL STAFF NEEDED: {total_tomorrow_staff} ***")
+            for role, count in tomorrow_data['required_roles'].items():
+                print(f"- {role}: {count}")
 
             # Process day after tomorrow's data
             day_after_data = result['day_after']
@@ -135,16 +194,7 @@ if __name__ == "__main__":
             print(f"- Staged Pallets: {day_after_data['forecast_data']['staged_pallets']:.1f}")
             
             print("\nRequired Staff:")
-            for operation, roles in day_after_data['required_roles'].items():
-                if isinstance(roles, dict):
-                    print(f"- {operation.title()}:")
-                    for role, count in roles.items():
-                        print(f"  - {role.replace('_', ' ').title()}: {count}")
-                else:
-                    print(f"- {operation.replace('_', ' ').title()}: {roles}")
-            
-            # Calculate and display total staff for day after tomorrow
-            total_day_after_staff = calculate_total_staff(day_after_data['required_roles'])
-            print(f"\n*** TOTAL STAFF NEEDED: {total_day_after_staff} ***")
+            for role, count in day_after_data['required_roles'].items():
+                print(f"- {role}: {count}")
         else:
             print("\nNo scheduling data available for the next two days")

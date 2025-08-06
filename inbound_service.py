@@ -165,7 +165,7 @@ def get_incoming_data(target_date: Optional[datetime] = None) -> Dict[str, float
             if isinstance(pallet_count, (int, float, str)) and str(pallet_count).replace('.', '').isdigit():
                 # Cap pallet count at 28 if it exceeds 33
                 pallet_count = float(pallet_count)
-                if pallet_count > 33:
+                if pallet_count > 50:
                     pallet_count = 28
                 receipt_pallets[rn_id] = pallet_count
         

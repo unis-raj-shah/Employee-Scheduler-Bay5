@@ -8,6 +8,7 @@ from api_client import get_outbound_orders, get_picked_outbound_orders
 from notification_service import send_schedule_email
 from api_client import get_tomorrow_date_range
 from datetime import datetime
+from database import delete_scheduled_employees
 
 def get_orders_for_scheduling(target_date: Optional[datetime] = None):
     """
@@ -63,64 +64,73 @@ def get_orders_for_scheduling(target_date: Optional[datetime] = None):
         print(f"Error getting orders for scheduling: {str(e)}")
         return {}, {}
 
-def flatten_required_roles(nested_roles: Dict[str, Any]) -> Dict[str, int]:
-    """
-    Flatten nested roles structure into a simple role -> count mapping.
-    
-    Args:
-        nested_roles: Nested roles structure from calculate_required_roles
-        
-    Returns:
-        Flattened dictionary with role names as keys and counts as values
-    """
-    flattened = {}
-    
-    for operation, roles in nested_roles.items():
-        if isinstance(roles, dict):
-            for role, count in roles.items():
-                # Use operation prefix to make roles unique
-                role_key = f"{operation}_{role}" if operation != "replenishment" else role
-                if role == "staff":  # Special case for replenishment staff
-                    role_key = "consolidation"
-                flattened[role_key] = count
-        else:
-            # In case roles is directly a count (shouldn't happen with current structure)
-            flattened[operation] = roles
-    
-    return flattened
-
 def assign_employees_to_roles(required_roles: Dict[str, Any]) -> Dict[str, List[str]]:
     """
     Assign employees to the calculated required roles.
     
     Args:
-        required_roles: Dictionary of roles and their required counts (can be nested)
+        required_roles: Dictionary of roles and their required counts
         
     Returns:
-        Dictionary mapping roles to lists of assigned employees
+        Dictionary mapping base role names to lists of assigned employees
     """
     assigned_employees = {}
     
     try:
-        # Flatten the roles structure if it's nested
-        flat_roles = flatten_required_roles(required_roles)
+        # Flatten the nested role structure and create mapping for base roles
+        flattened_roles = {}
+        for operation, roles in required_roles.items():
+            for role, count in roles.items():
+                role_key = f"{operation}_{role.replace(' ', '_')}"
+                flattened_roles[role_key] = count
+        base_roles_lookup = {}  # Maps base roles to their required counts
         
-        # Get employees matching the required roles
-        matched_employees = retrieve_employees(flat_roles)
+        for role_key, count in flattened_roles.items():
+            # Extract base role name (everything after the first underscore)
+            base_role = role_key.split('_', 1)[1] if '_' in role_key else role_key
+            base_role = base_role.replace('_', ' ')  # Convert back to space format for lookup
+            
+            # Map base role to total count needed across all operations
+            if base_role in base_roles_lookup:
+                base_roles_lookup[base_role] += count
+            else:
+                base_roles_lookup[base_role] = count
         
-        # For each role, assign the required number of employees
-        for role, count in flat_roles.items():
-            available_employees = matched_employees.get(role, [])
+        # Get employees matching the base roles (without operation prefixes)
+        matched_employees = retrieve_employees(base_roles_lookup)
+        
+        # Create a pool of available employees by role
+        employee_pools = {}
+        for role, employees in matched_employees.items():
+            employee_pools[role] = employees.copy()  # Make a copy to track usage
+        
+        # For each flattened role, assign employees from the appropriate pool
+        for role_key, count in flattened_roles.items():
+            # Extract base role name (everything after the first underscore)
+            base_role = role_key.split('_', 1)[1] if '_' in role_key else role_key
+            base_role = base_role.replace('_', ' ')  # Convert underscores back to spaces
+            
+            available_employees = employee_pools.get(base_role, [])
+            
             if len(available_employees) < count:
-                print(f"Warning: Not enough employees for role {role}. Need {count}, found {len(available_employees)}")
+                print(f"Debug - Role: {base_role}, Required: {count}, Available: {len(available_employees)}")
             
             # Assign up to the required number of employees
-            assigned_employees[role] = available_employees[:count]
+            assigned_count = min(count, len(available_employees))
+            
+            # Use base role as key instead of operation_role
+            if base_role not in assigned_employees:
+                assigned_employees[base_role] = []
+            assigned_employees[base_role].extend(available_employees[:assigned_count])
+            
+            # Remove assigned employees from the pool to avoid double assignment
+            employee_pools[base_role] = available_employees[assigned_count:]
     
     except Exception as e:
         print(f"Error assigning employees to roles: {e}")
     
     return assigned_employees
+
 
 def run_scheduler() -> Optional[Dict[str, Any]]:
     """
@@ -167,13 +177,40 @@ def run_scheduler() -> Optional[Dict[str, Any]]:
     assigned_employees_tomorrow = assign_employees_to_roles(required_roles_tomorrow)
     assigned_employees_day_after = assign_employees_to_roles(required_roles_day_after)
     
-    # Calculate shortages only for tomorrow - flatten the structure first
-    flat_roles_tomorrow = flatten_required_roles(required_roles_tomorrow)    
+    # Flatten required roles for both days for shortages and forecast email
+    def flatten_roles(required_roles):
+        flattened = {}
+        for operation, roles in required_roles.items():
+            for role, count in roles.items():
+                # Use base role names without operation prefix
+                if operation == 'replenishment' and role == 'staff':
+                    # Special case for replenishment staff -> consolidation
+                    base_role = 'consolidation'
+                else:
+                    base_role = role  # Keep the base role name as is
+                
+                # Aggregate counts for the same base role across operations
+                if base_role in flattened:
+                    flattened[base_role] += count
+                else:
+                    flattened[base_role] = count
+        return flattened
+    
+    flat_roles_tomorrow = flatten_roles(required_roles_tomorrow)
+    flat_roles_day_after = flatten_roles(required_roles_day_after)
+    
+    # Calculate shortages only for tomorrow
     shortages = {}
-    for role, required_count in flat_roles_tomorrow.items():
-        assigned_count = len(assigned_employees_tomorrow.get(role, []))
+    for role_key, required_count in flat_roles_tomorrow.items():
+        # Convert role key to space format for employee lookup
+        if role_key == 'consolidation':
+            lookup_role = 'staff'
+        else:
+            lookup_role = role_key.replace('_', ' ')  # Convert to space format for lookup
+        
+        assigned_count = len(assigned_employees_tomorrow.get(lookup_role, []))
         if assigned_count < required_count:
-            shortages[role] = required_count - assigned_count
+            shortages[role_key] = required_count - assigned_count
     
     # Create schedule data for both days
     schedule_data = {
@@ -228,11 +265,9 @@ def run_scheduler() -> Optional[Dict[str, Any]]:
         'staged_pallets': staged_pallets_day_after
     }
     
-    # For the combined email, we need to flatten the required roles for both days
-    flat_roles_day_after = flatten_required_roles(required_roles_day_after)
-    
+    # Send combined forecast email with the non-flattened roles to show individual operation counts
     send_combined_forecast_email(tomorrow_data, day_after_data, 
-                               flat_roles_tomorrow, flat_roles_day_after, 
+                               required_roles_tomorrow, required_roles_day_after, 
                                shortages)
     
     return schedule_data
